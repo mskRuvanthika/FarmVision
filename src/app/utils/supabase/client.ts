@@ -1,10 +1,3 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { projectId, publicAnonKey } from './info';
+export const projectId = 'oicrbxdktdatpewxxdrx';
 
-const url = projectId ? `https://${projectId}.supabase.co` : null;
-const key = publicAnonKey ?? null;
-
-export const isConnected: boolean = Boolean(url && key);
-
-export const supabase: SupabaseClient | null =
-  isConnected && url && key ? createClient(url, key) : null;
+export const publicAnonKey = 'sb_publishable_EFO7w_ugt1brdUj-rdoRxQ_CK2R4S3x';
