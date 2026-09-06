@@ -1,3 +1,9 @@
-export const projectId = 'oicrbxdktdatpewxxdrx';
+import { createClient } from '@supabase/supabase-js';
+import { projectId, publicAnonKey } from './info';
 
-export const publicAnonKey = 'sb_publishable_EFO7w_ugt1brdUj-rdoRxQ_CK2R4S3x';
+const supabaseUrl = `https://${projectId}.supabase.co`;
+
+export const supabase = createClient(
+  supabaseUrl,
+  publicAnonKey
+);
