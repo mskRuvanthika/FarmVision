@@ -272,5 +272,130 @@ async def predict(file: UploadFile = File(...)):
             "name": disease,
             **info,
         }
+        # ============================================================
+# SOIL ANALYSIS API
+# ============================================================
+
+SOIL_ROBOFLOW_MODEL = "soil-type-ladmq/6"
+SOIL_ROBOFLOW_API_KEY = os.getenv("ROBOFLOW_API_KEY")
+
+
+@app.post("/soil-analyze")
+async def soil_analyze(file: UploadFile = File(...)):
+
+    # Check API key
+    if not SOIL_ROBOFLOW_API_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="Roboflow API key is not configured on the server"
+        )
+
+    # Check uploaded file
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(
+            status_code=400,
+            detail="Please upload a soil image"
+        )
+
+    try:
+        # Read image
+        image_data = await file.read()
+
+        # Convert image to Base64
+        encoded_image = base64.b64encode(image_data).decode("utf-8")
+
+        # Send image to Roboflow
+        response = requests.post(
+            f"https://classify.roboflow.com/{SOIL_ROBOFLOW_MODEL}",
+            params={
+                "api_key": SOIL_ROBOFLOW_API_KEY
+            },
+            data=encoded_image,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded"
+            },
+            timeout=60
+        )
+
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail="Soil classification service failed"
+            )
+
+        data = response.json()
+
+        predictions = data.get("predictions", {})
+
+        if not predictions:
+            raise HTTPException(
+                status_code=400,
+                detail="No soil prediction returned"
+            )
+
+        # Find highest-confidence soil type
+        best_class = max(
+            predictions,
+            key=lambda soil: predictions[soil]["confidence"]
+        )
+
+        confidence = predictions[best_class]["confidence"]
+
+        soil_type = best_class.lower()
+
+        # Get soil parameters
+        if soil_type not in SOIL_PARAMETER_ENGINE:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Soil type '{best_class}' is not supported"
+            )
+
+        parameters = SOIL_PARAMETER_ENGINE[soil_type]
+
+        # Return result to React
+        return {
+            "soil_type": best_class,
+            "confidence": round(confidence * 100, 2),
+
+            "parameters": {
+                "nitrogen": {
+                    "value": parameters["nitrogen"]["value"],
+                    "unit": parameters["nitrogen"]["unit"]
+                },
+                "phosphorus": {
+                    "value": parameters["phosphorus"]["value"],
+                    "unit": parameters["phosphorus"]["unit"]
+                },
+                "potassium": {
+                    "value": parameters["potassium"]["value"],
+                    "unit": parameters["potassium"]["unit"]
+                },
+                "pH": {
+                    "value": parameters["pH"]["value"],
+                    "unit": parameters["pH"]["unit"]
+                },
+                "organic_carbon": {
+                    "value": parameters["organic_carbon"]["value"],
+                    "unit": parameters["organic_carbon"]["unit"]
+                }
+            },
+
+            "note": "Soil parameters are prototype reference estimates based on predicted soil type."
+        }
+
+    except requests.RequestException as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Unable to connect to soil classification service: {exc}"
+        ) from exc
+
+    except HTTPException:
+        raise
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Soil analysis failed: {exc}"
+        ) from exc
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Could not process image: {exc}") from exc
