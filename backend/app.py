@@ -1,6 +1,9 @@
 from pathlib import Path
 import io
 import json
+import os
+import base64
+import requests
 
 import numpy as np
 import tensorflow as tf
@@ -53,7 +56,95 @@ def load_resources():
     with LABELS_PATH.open("r", encoding="utf-8") as f:
         class_labels = json.load(f)
 
+SOIL_PARAMETER_ENGINE = {
+    "alluvial": {
+        "nitrogen": {"value": 140, "unit": "kg/ha"},
+        "phosphorus": {"value": 18, "unit": "mg/kg"},
+        "potassium": {"value": 180, "unit": "kg/ha"},
+        "pH": {"value": 7.0, "unit": ""},
+        "organic_carbon": {"value": 0.65, "unit": "%"}
+    },
 
+    "black": {
+        "nitrogen": {"value": 150, "unit": "kg/ha"},
+        "phosphorus": {"value": 12, "unit": "mg/kg"},
+        "potassium": {"value": 300, "unit": "kg/ha"},
+        "pH": {"value": 7.2, "unit": ""},
+        "organic_carbon": {"value": 0.75, "unit": "%"}
+    },
+
+    "cinder": {
+        "nitrogen": {"value": 80, "unit": "kg/ha"},
+        "phosphorus": {"value": 10, "unit": "mg/kg"},
+        "potassium": {"value": 120, "unit": "kg/ha"},
+        "pH": {"value": 6.5, "unit": ""},
+        "organic_carbon": {"value": 0.40, "unit": "%"}
+    },
+
+    "clay": {
+        "nitrogen": {"value": 130, "unit": "kg/ha"},
+        "phosphorus": {"value": 15, "unit": "mg/kg"},
+        "potassium": {"value": 220, "unit": "kg/ha"},
+        "pH": {"value": 7.0, "unit": ""},
+        "organic_carbon": {"value": 0.60, "unit": "%"}
+    },
+
+    "laterite": {
+        "nitrogen": {"value": 90, "unit": "kg/ha"},
+        "phosphorus": {"value": 8, "unit": "mg/kg"},
+        "potassium": {"value": 110, "unit": "kg/ha"},
+        "pH": {"value": 5.8, "unit": ""},
+        "organic_carbon": {"value": 0.55, "unit": "%"}
+    },
+
+    "loamy": {
+        "nitrogen": {"value": 160, "unit": "kg/ha"},
+        "phosphorus": {"value": 20, "unit": "mg/kg"},
+        "potassium": {"value": 200, "unit": "kg/ha"},
+        "pH": {"value": 6.8, "unit": ""},
+        "organic_carbon": {"value": 0.80, "unit": "%"}
+    },
+
+    "peat": {
+        "nitrogen": {"value": 200, "unit": "kg/ha"},
+        "phosphorus": {"value": 15, "unit": "mg/kg"},
+        "potassium": {"value": 100, "unit": "kg/ha"},
+        "pH": {"value": 5.5, "unit": ""},
+        "organic_carbon": {"value": 2.50, "unit": "%"}
+    },
+
+    "red": {
+        "nitrogen": {"value": 100, "unit": "kg/ha"},
+        "phosphorus": {"value": 10, "unit": "mg/kg"},
+        "potassium": {"value": 140, "unit": "kg/ha"},
+        "pH": {"value": 6.2, "unit": ""},
+        "organic_carbon": {"value": 0.50, "unit": "%"}
+    },
+
+    "sandy": {
+        "nitrogen": {"value": 70, "unit": "kg/ha"},
+        "phosphorus": {"value": 8, "unit": "mg/kg"},
+        "potassium": {"value": 100, "unit": "kg/ha"},
+        "pH": {"value": 6.3, "unit": ""},
+        "organic_carbon": {"value": 0.30, "unit": "%"}
+    },
+
+    "sandy_loam": {
+        "nitrogen": {"value": 110, "unit": "kg/ha"},
+        "phosphorus": {"value": 12, "unit": "mg/kg"},
+        "potassium": {"value": 150, "unit": "kg/ha"},
+        "pH": {"value": 6.5, "unit": ""},
+        "organic_carbon": {"value": 0.45, "unit": "%"}
+    },
+
+    "yellow": {
+        "nitrogen": {"value": 95, "unit": "kg/ha"},
+        "phosphorus": {"value": 9, "unit": "mg/kg"},
+        "potassium": {"value": 120, "unit": "kg/ha"},
+        "pH": {"value": 6.0, "unit": ""},
+        "organic_carbon": {"value": 0.45, "unit": "%"}
+    }
+}
 DISEASE_INFO = {
     "Bacterial spot": {
         "nameHindi": "जीवाणु धब्बा रोग",
