@@ -8,14 +8,17 @@ export function SoilAnalysis() {
   const [language, setLanguage] = useState('en');
   const [loading, setLoading] = useState(false);
   const [soilData, setSoilData] = useState<any>(null);
-  const [imagePreview, setImagePreview] = useState<string>('');
-  const [selectedCropCheck, setSelectedCropCheck] = useState('');
+const [imagePreview, setImagePreview] = useState<string>('');
+const [selectedFile, setSelectedFile] = useState<File | null>(null);
+const [selectedCropCheck, setSelectedCropCheck] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
+   if (file) {
+  setSelectedFile(file);
+
+  const reader = new FileReader();
       reader.onloadend = () => {
         setImagePreview(reader.result as string);
       };
@@ -54,26 +57,44 @@ export function SoilAnalysis() {
         
         toast.info("Using default region (Location access skipped)");
       }
+      if (!selectedFile) {
+        toast.error("Please upload a soil image first.");
+        return;
+      }
 
-      const payloadImage = imagePreview && imagePreview.length > 10000
-        ? imagePreview.substring(0, 10000)
-        : imagePreview;
+      const formData = new FormData();
+      formData.append("file", selectedFile);
 
-      // Use client-side mock data - no API calls
-      const soilTypes = ['Loamy', 'Clay', 'Sandy Loam', 'Black Soil', 'Red Soil'];
-      const mockSoil = {
-        ph: (5.5 + Math.random() * 2.5).toFixed(1),
-        moisture: (20 + Math.random() * 25).toFixed(1),
-        nitrogen: (25 + Math.random() * 40).toFixed(1),
-        phosphorus: (15 + Math.random() * 25).toFixed(1),
-        potassium: (20 + Math.random() * 30).toFixed(1),
-        organicMatter: (2 + Math.random() * 3).toFixed(1),
-        soilType: soilTypes[Math.floor(Math.random() * soilTypes.length)],
+      const response = await fetch(
+        "https://farmvision-5krp.onrender.com/soil-analyze",
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.detail || "Soil analysis failed");
+      }
+
+      const result = await response.json();
+
+      const soilResult = {
+        soilType: result.soil_type,
+        confidence: result.confidence,
+        ph: String(result.parameters.pH.value),
+        moisture: "—",
+        nitrogen: String(result.parameters.nitrogen.value),
+        phosphorus: String(result.parameters.phosphorus.value),
+        potassium: String(result.parameters.potassium.value),
+        organicMatter: String(result.parameters.organic_carbon.value),
         timestamp: new Date().toISOString(),
       };
 
-      setSoilData(mockSoil);
+      setSoilData(soilResult);
       toast.success("Soil analysis complete");
+     
     } catch (error: any) {
       console.error('Error analyzing soil:', error);
       toast.error("Analysis failed. Please try again.");
