@@ -272,9 +272,9 @@ async def predict(file: UploadFile = File(...)):
             "name": disease,
             **info,
         }
-            except Exception as exc:
+    except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Could not process image: {exc}") from exc
-        # ============================================================
+# ============================================================
 # SOIL ANALYSIS API
 # ============================================================
 
