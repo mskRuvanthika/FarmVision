@@ -1,0 +1,42 @@
+name: Build Catalyst Package
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-catalyst-package:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout FarmVision
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build FarmVision
+        env:
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_DISEASE_API_URL: https://farmvision-5krp.onrender.com
+        run: npm run build
+
+      - name: Prepare Catalyst package
+        run: |
+          cp client-package.json dist/client-package.json
+
+      - name: Create Catalyst ZIP
+        run: |
+          cd dist
+          zip -r ../FarmVision-Catalyst.zip .
+
+      - name: Upload Catalyst package
+        uses: actions/upload-artifact@v4
+        with:
+          name: FarmVision-Catalyst
+          path: FarmVision-Catalyst.zip
