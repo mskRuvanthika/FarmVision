@@ -1,6 +1,6 @@
 {
   "name": "FarmVision",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "AI-powered crop disease detection and agricultural advisory platform",
   "homepage": "index.html",
   "login_redirect": "index.html"
