@@ -41,6 +41,10 @@ export const router = createBrowserRouter(
     },
   ],
   {
-    basename: "/FarmVision",
+   basename: window.location.pathname.startsWith("/app")
+     ? "/app"
+     : window.location.pathname.startsWith("/FarmVision")
+       ? "/FarmVision"
+       : "/",
   }
 );
