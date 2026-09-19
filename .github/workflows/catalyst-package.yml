@@ -24,7 +24,7 @@ jobs:
         env:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_DISEASE_API_URL: https://farmvision-5krp.onrender.com
-        run: npm run build
+        run: npm run build -- --base=./
 
       - name: Prepare Catalyst package
         run: |
