@@ -1,4 +1,4 @@
-import { createBrowserRouter } from "react-router";
+import { createHashRouter } from "react-router";
 import { Layout } from "./components/Layout";
 import { Dashboard } from "./components/Dashboard";
 import { SoilAnalysis } from "./components/SoilAnalysis";
@@ -13,7 +13,7 @@ import { AgriGames } from "./components/AgriGames";
 import { ReferencePapers } from "./components/ReferencePapers";
 import { Communication } from "./components/Communication";
 
-export const router = createBrowserRouter(
+export const router = createHashRouter(
   [
     {
       path: "/login",
@@ -39,12 +39,5 @@ export const router = createBrowserRouter(
         { path: "communication", Component: Communication },
       ],
     },
-  ],
-  {
-   basename: window.location.pathname.startsWith("/app")
-     ? "/app"
-     : window.location.pathname.startsWith("/FarmVision")
-       ? "/FarmVision"
-       : "/",
-  }
+  ]
 );
