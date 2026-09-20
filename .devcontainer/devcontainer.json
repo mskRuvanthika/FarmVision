@@ -1,6 +1,6 @@
 {
   "name": "FarmVision",
-  "image": "mcr.microsoft.com/devcontainers/python:3.11-bookworm",
+  "image": "mcr.microsoft.com/devcontainers/python:dev-3.11-bookworm",
   "features": {
     "ghcr.io/devcontainers/features/node:1": {}
   },
