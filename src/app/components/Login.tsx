@@ -1,4 +1,4 @@
-import { useState, useEffect , useRef } from 'react';
+import { useState } from 'react';
 import { useNavigate, Link } from 'react-router';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -37,18 +37,11 @@ type ForgotPasswordForm = z.infer<typeof forgotPasswordSchema>;
 
 export function Login() {
   const navigate = useNavigate();
-  const catalystLoginRef = useRef<HTMLDivElement>(null);
   const { auth } = useAuth();
   const [view, setView] = useState<'login' | 'signup' | 'forgot'>('login');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
-
-  useEffect(() => {
-    if (catalystLoginRef.current) {
-      catalyst.auth.signIn(catalystLoginRef.current.id, {});
-    }
-    }, []);
 
   // Forms
   const loginForm = useForm<LoginForm>({
@@ -182,12 +175,6 @@ export function Login() {
 
         {/* Content Section */}
         <div className="p-8">
-
-  <div
-    ref={catalystLoginRef}
-    id="catalyst-login"
-    className="mb-6"
-  />
           {/* Tabs */}
           {view !== 'forgot' && (
             <div className="flex bg-green-50 p-1 rounded-xl mb-8 relative">
