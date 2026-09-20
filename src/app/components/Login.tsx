@@ -44,6 +44,12 @@ export function Login() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
 
+  useEffect(() => {
+    if (catalystLoginRef.current) {
+      catalyst.auth.signIn(catalystLoginRef.current.id, {});
+    }
+    }, []);
+
   // Forms
   const loginForm = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
@@ -176,7 +182,12 @@ export function Login() {
 
         {/* Content Section */}
         <div className="p-8">
-          
+
+  <div
+    ref={catalystLoginRef}
+    id="catalyst-login"
+    className="mb-6"
+  />
           {/* Tabs */}
           {view !== 'forgot' && (
             <div className="flex bg-green-50 p-1 rounded-xl mb-8 relative">
