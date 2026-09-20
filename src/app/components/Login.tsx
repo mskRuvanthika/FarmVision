@@ -37,6 +37,7 @@ type ForgotPasswordForm = z.infer<typeof forgotPasswordSchema>;
 
 export function Login() {
   const navigate = useNavigate();
+  const catalystLoginRef = useRef<HTMLDivElement>(null);
   const { auth } = useAuth();
   const [view, setView] = useState<'login' | 'signup' | 'forgot'>('login');
   const [showPassword, setShowPassword] = useState(false);
