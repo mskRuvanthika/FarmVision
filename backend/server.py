@@ -1,23 +1,14 @@
 import base64
 import io
 import os
-import tempfile
 import wave
 from pathlib import Path
-from typing import Any
 
 from dotenv import load_dotenv
-
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
-
 from pydantic import BaseModel
-
-from inference_sdk import (
-    InferenceHTTPClient,
-    InferenceConfiguration,
-)
 
 from google import genai
 from google.genai import types
@@ -37,69 +28,14 @@ load_dotenv(
 
 
 # ============================================================
-# APPLICATION
+# GEMINI CONFIGURATION
 # ============================================================
 
-app = FastAPI(
-    title="AI Crop Advisory Backend"
-)
-
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-# ============================================================
-# ROBOFLOW
-# ============================================================
-
-ROBOFLOW_API_KEY = os.getenv(
-    "ROBOFLOW_API_KEY"
-)
-
-WORKSPACE_NAME = "parkavi-k"
-
-WORKFLOW_ID = (
-    "general-segmentation-api-5"
-)
-
-DISEASE_CLASSES = (
-    "Rust, Bacteria Blights, Brown Spot, "
-    "Downey Mildew, Dried Leaves"
-)
-
-client = None
-
-if ROBOFLOW_API_KEY:
-    client = InferenceHTTPClient(
-        api_url="https://serverless.roboflow.com",
-        api_key=ROBOFLOW_API_KEY,
-    ).configure(
-        InferenceConfiguration(
-            api_key_transport="header"
-        )
-    )
-
-
-# ============================================================
-# GEMINI
-# ============================================================
-
-GEMINI_API_KEY = os.getenv(
-    "GEMINI_API_KEY"
-)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 GEMINI_TEXT_MODEL = os.getenv(
     "GEMINI_TEXT_MODEL",
-    "gemini-3.6-flash",
+    "gemini-3.5-flash",
 )
 
 GEMINI_TTS_MODEL = os.getenv(
@@ -116,7 +52,29 @@ if GEMINI_API_KEY:
 
 
 # ============================================================
-# TTS LANGUAGES
+# FASTAPI APPLICATION
+# ============================================================
+
+app = FastAPI(
+    title="AI Crop Advisory Gemini Backend"
+)
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://mskruvanthika.github.io",
+    ],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ============================================================
+# SUPPORTED LANGUAGES
 # ============================================================
 
 TTS_LANGUAGES = {
@@ -131,170 +89,15 @@ TTS_LANGUAGES = {
 # HELPERS
 # ============================================================
 
-def _to_float(value: Any):
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _extract_detections(node: Any):
+def extract_audio_bytes(response) -> bytes | None:
     """
-    Best-effort normalization of common
-    Roboflow Workflow outputs.
-    """
-
-    found = []
-
-    if isinstance(node, dict):
-
-        for key in (
-            "predictions",
-            "detections",
-        ):
-
-            value = node.get(key)
-
-            if isinstance(value, list):
-
-                for item in value:
-
-                    if isinstance(item, dict):
-
-                        label = (
-                            item.get("class")
-                            or item.get("class_name")
-                            or item.get("label")
-                            or item.get("name")
-                        )
-
-                        confidence = _to_float(
-                            item.get("confidence")
-                            if "confidence" in item
-                            else item.get("score")
-                        )
-
-                        if label:
-
-                            found.append(
-                                {
-                                    "class": str(label),
-                                    "confidence": (
-                                        confidence
-                                        if confidence is not None
-                                        else 0.0
-                                    ),
-                                    "raw": item,
-                                }
-                            )
-
-        predicted_classes = node.get(
-            "predicted_classes"
-        )
-
-        if isinstance(
-            predicted_classes,
-            list,
-        ):
-
-            confidences = node.get(
-                "predictions"
-            )
-
-            for label in predicted_classes:
-
-                confidence = 0.0
-
-                if isinstance(
-                    confidences,
-                    dict,
-                ):
-
-                    value = confidences.get(
-                        label
-                    )
-
-                    if isinstance(
-                        value,
-                        dict,
-                    ):
-
-                        confidence = (
-                            _to_float(
-                                value.get(
-                                    "confidence"
-                                )
-                            )
-                            or 0.0
-                        )
-
-                    else:
-
-                        confidence = (
-                            _to_float(
-                                value
-                            )
-                            or 0.0
-                        )
-
-                found.append(
-                    {
-                        "class": str(label),
-                        "confidence": confidence,
-                        "raw": {
-                            "class": label,
-                        },
-                    }
-                )
-
-        for value in node.values():
-
-            if isinstance(
-                value,
-                (dict, list),
-            ):
-
-                found.extend(
-                    _extract_detections(
-                        value
-                    )
-                )
-
-    elif isinstance(
-        node,
-        list,
-    ):
-
-        for value in node:
-
-            if isinstance(
-                value,
-                (dict, list),
-            ):
-
-                found.extend(
-                    _extract_detections(
-                        value
-                    )
-                )
-
-    return found
-
-
-def _extract_audio_bytes(response) -> bytes | None:
-    """
-    Extract PCM audio bytes from Gemini TTS response.
+    Extract audio bytes returned by Gemini TTS.
     """
 
     try:
-
-        candidates = (
-            response.candidates
-            or []
-        )
+        candidates = response.candidates or []
 
         for candidate in candidates:
-
             content = candidate.content
 
             if not content:
@@ -303,14 +106,13 @@ def _extract_audio_bytes(response) -> bytes | None:
             parts = content.parts or []
 
             for part in parts:
-
                 inline_data = getattr(
                     part,
                     "inline_data",
                     None,
                 )
 
-                if not inline_data:
+                if inline_data is None:
                     continue
 
                 data = getattr(
@@ -323,19 +125,16 @@ def _extract_audio_bytes(response) -> bytes | None:
                     continue
 
                 if isinstance(data, str):
-
                     try:
                         return base64.b64decode(
                             data
                         )
-
                     except Exception:
                         continue
 
                 return bytes(data)
 
     except Exception as exc:
-
         print(
             "Audio extraction error:",
             repr(exc),
@@ -344,15 +143,15 @@ def _extract_audio_bytes(response) -> bytes | None:
     return None
 
 
-def _pcm_to_wav(
+def pcm_to_wav(
     pcm_bytes: bytes,
     sample_rate: int = 24000,
     channels: int = 1,
     sample_width: int = 2,
 ) -> bytes:
     """
-    Gemini TTS returns raw PCM.
-    Convert it to WAV for browser playback.
+    Convert Gemini PCM audio into WAV audio
+    that browsers can play.
     """
 
     buffer = io.BytesIO()
@@ -382,7 +181,7 @@ def _pcm_to_wav(
 
 
 # ============================================================
-# HOME
+# HOME / HEALTH CHECK
 # ============================================================
 
 @app.get("/")
@@ -390,157 +189,27 @@ def home():
 
     return {
         "message": (
-            "AI Crop Advisory backend "
+            "AI Crop Advisory Gemini backend "
             "is running"
-        ),
-        "workflow": (
-            f"{WORKSPACE_NAME}/"
-            f"{WORKFLOW_ID}"
         ),
         "gemini": (
             "configured"
             if gemini_client
             else "not configured"
         ),
-        "tts": GEMINI_TTS_MODEL,
+        "text_model": GEMINI_TEXT_MODEL,
+        "tts_model": GEMINI_TTS_MODEL,
+        "supported_languages": list(
+            TTS_LANGUAGES.keys()
+        ),
     }
-
-
-# ============================================================
-# ROBOFLOW DISEASE DETECTION
-# ============================================================
-
-@app.post(
-    "/api/disease-detection"
-)
-async def disease_detection(
-    file: UploadFile = File(...),
-):
-
-    if client is None:
-
-        return JSONResponse(
-            status_code=500,
-            content={
-                "detail": (
-                    "ROBOFLOW_API_KEY "
-                    "is not configured "
-                    "in backend/.env"
-                )
-            },
-        )
-
-    suffix = (
-        os.path.splitext(
-            file.filename
-            or "image.jpg"
-        )[1]
-        or ".jpg"
-    )
-
-    temp_path = None
-
-    try:
-
-        with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=suffix,
-        ) as temp:
-
-            temp.write(
-                await file.read()
-            )
-
-            temp_path = temp.name
-
-        result = client.run_workflow(
-            workspace_name=WORKSPACE_NAME,
-            workflow_id=WORKFLOW_ID,
-            images={
-                "image": temp_path
-            },
-            parameters={
-                "classes": DISEASE_CLASSES
-            },
-            use_cache=True,
-        )
-
-        detections = (
-            _extract_detections(
-                result
-            )
-        )
-
-        unique = {}
-
-        for item in detections:
-
-            key = (
-                item["class"],
-                round(
-                    item["confidence"],
-                    6,
-                ),
-            )
-
-            unique[key] = item
-
-        detections = sorted(
-            unique.values(),
-            key=lambda x: x[
-                "confidence"
-            ],
-            reverse=True,
-        )
-
-        return {
-            "success": True,
-            "workflow": (
-                f"{WORKSPACE_NAME}/"
-                f"{WORKFLOW_ID}"
-            ),
-            "detections": detections,
-            "result": result,
-        }
-
-    except Exception as exc:
-
-        print(
-            "Roboflow workflow error:",
-            repr(exc),
-        )
-
-        return JSONResponse(
-            status_code=502,
-            content={
-                "detail": (
-                    "Roboflow workflow failed: "
-                    f"{str(exc)}"
-                )
-            },
-        )
-
-    finally:
-
-        if (
-            temp_path
-            and os.path.exists(
-                temp_path
-            )
-        ):
-
-            os.remove(
-                temp_path
-            )
 
 
 # ============================================================
 # GEMINI TEXT ADVICE
 # ============================================================
 
-class GeminiAdviceRequest(
-    BaseModel
-):
+class GeminiAdviceRequest(BaseModel):
 
     question: str
 
@@ -564,9 +233,8 @@ async def gemini_advice(
             status_code=500,
             content={
                 "detail": (
-                    "GEMINI_API_KEY "
-                    "is not configured "
-                    "in backend/.env"
+                    "GEMINI_API_KEY is not "
+                    "configured in backend/.env"
                 )
             },
         )
@@ -590,20 +258,23 @@ Farmer's question:
 Give practical, simple,
 farmer-friendly advice.
 
-Follow the requested response language
-inside the additional context.
+Follow the requested language exactly.
 
-For disease or crop-health questions:
+If a disease or crop-health problem
+is mentioned:
+
 1. Explain what it may mean.
 2. Explain possible causes.
-3. Give management or treatment steps.
+3. Give treatment or management steps.
 4. Give prevention steps.
-5. Mention when an agricultural expert
-   should be contacted.
+5. Mention when the farmer should
+   contact an agricultural expert.
 
 Do not invent laboratory results.
-Do not claim certainty when information
+Do not claim certainty when the information
 is uncertain.
+
+Keep the answer easy to understand.
 """
 
     try:
@@ -648,9 +319,7 @@ is uncertain.
 # GEMINI TEXT-TO-SPEECH
 # ============================================================
 
-class GeminiTTSRequest(
-    BaseModel
-):
+class GeminiTTSRequest(BaseModel):
 
     text: str
 
@@ -670,9 +339,8 @@ async def gemini_tts(
             status_code=500,
             content={
                 "detail": (
-                    "GEMINI_API_KEY "
-                    "is not configured "
-                    "in backend/.env"
+                    "GEMINI_API_KEY is not "
+                    "configured in backend/.env"
                 )
             },
         )
@@ -680,7 +348,6 @@ async def gemini_tts(
     language_code = request.language
 
     if language_code not in TTS_LANGUAGES:
-
         language_code = "en-US"
 
     language_name = TTS_LANGUAGES[
@@ -701,7 +368,7 @@ async def gemini_tts(
             },
         )
 
-    # Keep very large answers manageable.
+    # Prevent extremely large TTS requests.
     text = text[:6000]
 
     tts_prompt = f"""
@@ -716,8 +383,8 @@ Language code:
 IMPORTANT:
 Speak in {language_name}.
 Do not translate the text.
-Read the text exactly as provided.
-Use a natural, friendly voice suitable
+Read the provided text naturally.
+Use a clear and friendly voice suitable
 for an agriculture assistant helping farmers.
 
 Text:
@@ -748,7 +415,7 @@ Text:
             )
         )
 
-        pcm_bytes = _extract_audio_bytes(
+        pcm_bytes = extract_audio_bytes(
             response
         )
 
@@ -758,7 +425,7 @@ Text:
                 "Gemini TTS did not return audio."
             )
 
-        wav_bytes = _pcm_to_wav(
+        wav_bytes = pcm_to_wav(
             pcm_bytes
         )
 
@@ -786,3 +453,10 @@ Text:
                 )
             },
         )
+
+
+# ============================================================
+# RUN WITH:
+#
+# uvicorn server:app --host 0.0.0.0 --port 8001
+# ============================================================
