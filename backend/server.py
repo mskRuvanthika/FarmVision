@@ -5,9 +5,11 @@ import wave
 from pathlib import Path
 
 from dotenv import load_dotenv
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
+
 from pydantic import BaseModel
 
 from google import genai
@@ -15,7 +17,7 @@ from google.genai import types
 
 
 # ============================================================
-# ENVIRONMENT
+# LOAD ENVIRONMENT VARIABLES
 # ============================================================
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -31,7 +33,9 @@ load_dotenv(
 # GEMINI CONFIGURATION
 # ============================================================
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_API_KEY = os.getenv(
+    "GEMINI_API_KEY"
+)
 
 GEMINI_TEXT_MODEL = os.getenv(
     "GEMINI_TEXT_MODEL",
@@ -43,7 +47,9 @@ GEMINI_TTS_MODEL = os.getenv(
     "gemini-3.1-flash-tts-preview",
 )
 
+
 gemini_client = None
+
 
 if GEMINI_API_KEY:
     gemini_client = genai.Client(
@@ -52,11 +58,23 @@ if GEMINI_API_KEY:
 
 
 # ============================================================
-# FASTAPI APPLICATION
+# SUPPORTED LANGUAGES
+# ============================================================
+
+SUPPORTED_LANGUAGES = {
+    "en-US": "English",
+    "ta-IN": "Tamil",
+    "hi-IN": "Hindi",
+    "te-IN": "Telugu",
+}
+
+
+# ============================================================
+# FASTAPI
 # ============================================================
 
 app = FastAPI(
-    title="AI Crop Advisory Gemini Backend"
+    title="FarmVision Gemini Backend"
 )
 
 
@@ -74,30 +92,24 @@ app.add_middleware(
 
 
 # ============================================================
-# SUPPORTED LANGUAGES
+# AUDIO HELPERS
 # ============================================================
 
-TTS_LANGUAGES = {
-    "en-US": "English",
-    "ta-IN": "Tamil",
-    "hi-IN": "Hindi",
-    "te-IN": "Telugu",
-}
-
-
-# ============================================================
-# HELPERS
-# ============================================================
-
-def extract_audio_bytes(response) -> bytes | None:
+def extract_audio_bytes(
+    response
+) -> bytes | None:
     """
-    Extract audio bytes returned by Gemini TTS.
+    Extract PCM audio bytes from Gemini response.
     """
 
     try:
-        candidates = response.candidates or []
+
+        candidates = (
+            response.candidates or []
+        )
 
         for candidate in candidates:
+
             content = candidate.content
 
             if not content:
@@ -106,13 +118,14 @@ def extract_audio_bytes(response) -> bytes | None:
             parts = content.parts or []
 
             for part in parts:
+
                 inline_data = getattr(
                     part,
                     "inline_data",
                     None,
                 )
 
-                if inline_data is None:
+                if not inline_data:
                     continue
 
                 data = getattr(
@@ -124,7 +137,11 @@ def extract_audio_bytes(response) -> bytes | None:
                 if not data:
                     continue
 
-                if isinstance(data, str):
+                if isinstance(
+                    data,
+                    str,
+                ):
+
                     try:
                         return base64.b64decode(
                             data
@@ -135,6 +152,7 @@ def extract_audio_bytes(response) -> bytes | None:
                 return bytes(data)
 
     except Exception as exc:
+
         print(
             "Audio extraction error:",
             repr(exc),
@@ -150,66 +168,71 @@ def pcm_to_wav(
     sample_width: int = 2,
 ) -> bytes:
     """
-    Convert Gemini PCM audio into WAV audio
-    that browsers can play.
+    Convert Gemini PCM audio to WAV.
     """
 
-    buffer = io.BytesIO()
+    output = io.BytesIO()
 
     with wave.open(
-        buffer,
+        output,
         "wb",
-    ) as wav_file:
+    ) as wav:
 
-        wav_file.setnchannels(
+        wav.setnchannels(
             channels
         )
 
-        wav_file.setsampwidth(
+        wav.setsampwidth(
             sample_width
         )
 
-        wav_file.setframerate(
+        wav.setframerate(
             sample_rate
         )
 
-        wav_file.writeframes(
+        wav.writeframes(
             pcm_bytes
         )
 
-    return buffer.getvalue()
+    return output.getvalue()
 
 
 # ============================================================
-# HOME / HEALTH CHECK
+# HEALTH CHECK
 # ============================================================
 
 @app.get("/")
 def home():
 
     return {
-        "message": (
-            "AI Crop Advisory Gemini backend "
-            "is running"
-        ),
+        "message": "FarmVision Gemini backend is running",
+
         "gemini": (
             "configured"
             if gemini_client
             else "not configured"
         ),
-        "text_model": GEMINI_TEXT_MODEL,
-        "tts_model": GEMINI_TTS_MODEL,
-        "supported_languages": list(
-            TTS_LANGUAGES.keys()
-        ),
+
+        "text_model":
+            GEMINI_TEXT_MODEL,
+
+        "tts_model":
+            GEMINI_TTS_MODEL,
+
+        "languages":
+            list(
+                SUPPORTED_LANGUAGES.keys()
+            ),
     }
 
 
 # ============================================================
-# GEMINI TEXT ADVICE
+# GEMINI TEXT REQUEST
 # ============================================================
 
-class GeminiAdviceRequest(BaseModel):
+class GeminiAdviceRequest(
+    BaseModel
+):
 
     question: str
 
@@ -219,12 +242,14 @@ class GeminiAdviceRequest(BaseModel):
 
     context: str = ""
 
+    language: str = "en-US"
+
 
 @app.post(
     "/api/gemini-advice"
 )
 async def gemini_advice(
-    request: GeminiAdviceRequest,
+    request: GeminiAdviceRequest
 ):
 
     if gemini_client is None:
@@ -232,16 +257,29 @@ async def gemini_advice(
         return JSONResponse(
             status_code=500,
             content={
-                "detail": (
-                    "GEMINI_API_KEY is not "
-                    "configured in backend/.env"
-                )
+                "detail":
+                    "GEMINI_API_KEY is not configured."
             },
         )
 
+
+    language = request.language
+
+    if language not in SUPPORTED_LANGUAGES:
+
+        language = "en-US"
+
+
+    language_name = (
+        SUPPORTED_LANGUAGES[
+            language
+        ]
+    )
+
+
     prompt = f"""
-You are the Farm AI Assistant
-for an agriculture application.
+You are FarmVision's AI agricultural
+assistant helping farmers.
 
 Crop:
 {request.crop}
@@ -249,33 +287,37 @@ Crop:
 Detected disease:
 {request.disease}
 
+Farmer question:
+{request.question}
+
 Additional context:
 {request.context}
 
-Farmer's question:
-{request.question}
+IMPORTANT LANGUAGE REQUIREMENT:
 
-Give practical, simple,
-farmer-friendly advice.
+Reply ONLY in {language_name}.
 
-Follow the requested language exactly.
+Do not answer in English unless
+the selected language is English.
 
-If a disease or crop-health problem
-is mentioned:
+Use simple, natural, farmer-friendly
+language.
 
-1. Explain what it may mean.
+For crop or disease questions:
+
+1. Explain the problem.
 2. Explain possible causes.
-3. Give treatment or management steps.
+3. Give practical treatment or
+   management steps.
 4. Give prevention steps.
-5. Mention when the farmer should
-   contact an agricultural expert.
+5. Mention when an agricultural
+   expert should be contacted.
 
 Do not invent laboratory results.
-Do not claim certainty when the information
-is uncertain.
-
-Keep the answer easy to understand.
+Do not claim certainty when the
+information is uncertain.
 """
+
 
     try:
 
@@ -286,16 +328,21 @@ Keep the answer easy to understand.
             )
         )
 
+
         answer = (
             response.text
             if response.text
             else "I could not generate a response."
         )
 
+
         return {
             "success": True,
             "answer": answer,
+            "language": language,
+            "language_name": language_name,
         }
+
 
     except Exception as exc:
 
@@ -304,22 +351,23 @@ Keep the answer easy to understand.
             repr(exc),
         )
 
+
         return JSONResponse(
             status_code=502,
             content={
-                "detail": (
-                    "Gemini request failed: "
-                    f"{str(exc)}"
-                )
+                "detail":
+                    f"Gemini request failed: {str(exc)}"
             },
         )
 
 
 # ============================================================
-# GEMINI TEXT-TO-SPEECH
+# GEMINI TEXT-TO-SPEECH REQUEST
 # ============================================================
 
-class GeminiTTSRequest(BaseModel):
+class GeminiTTSRequest(
+    BaseModel
+):
 
     text: str
 
@@ -330,7 +378,7 @@ class GeminiTTSRequest(BaseModel):
     "/api/gemini-tts"
 )
 async def gemini_tts(
-    request: GeminiTTSRequest,
+    request: GeminiTTSRequest
 ):
 
     if gemini_client is None:
@@ -338,58 +386,67 @@ async def gemini_tts(
         return JSONResponse(
             status_code=500,
             content={
-                "detail": (
-                    "GEMINI_API_KEY is not "
-                    "configured in backend/.env"
-                )
+                "detail":
+                    "GEMINI_API_KEY is not configured."
             },
         )
 
-    language_code = request.language
 
-    if language_code not in TTS_LANGUAGES:
-        language_code = "en-US"
+    language = request.language
 
-    language_name = TTS_LANGUAGES[
-        language_code
-    ]
+    if language not in SUPPORTED_LANGUAGES:
+
+        language = "en-US"
+
+
+    language_name = (
+        SUPPORTED_LANGUAGES[
+            language
+        ]
+    )
+
 
     text = request.text.strip()
+
 
     if not text:
 
         return JSONResponse(
             status_code=400,
             content={
-                "detail": (
-                    "No text was provided "
-                    "for speech."
-                )
+                "detail":
+                    "Text is required."
             },
         )
 
-    # Prevent extremely large TTS requests.
+
+    # Prevent excessively large TTS requests.
     text = text[:6000]
 
-    tts_prompt = f"""
-Read the following text aloud naturally.
 
-Language:
+    tts_prompt = f"""
+Speak the following text naturally.
+
+Selected language:
 {language_name}
 
 Language code:
-{language_code}
+{language}
 
 IMPORTANT:
-Speak in {language_name}.
-Do not translate the text.
-Read the provided text naturally.
-Use a clear and friendly voice suitable
-for an agriculture assistant helping farmers.
+Speak ONLY in {language_name}.
 
-Text:
+Do not translate the text into another
+language.
+
+Read the text naturally and clearly,
+with a friendly voice suitable for a
+farmer assistance application.
+
+Text to speak:
 {text}
 """
+
 
     try:
 
@@ -402,7 +459,7 @@ Text:
                         "AUDIO"
                     ],
                     speech_config=types.SpeechConfig(
-                        language_code=language_code,
+                        language_code=language,
                         voice_config=types.VoiceConfig(
                             prebuilt_voice_config=(
                                 types.PrebuiltVoiceConfig(
@@ -415,27 +472,35 @@ Text:
             )
         )
 
-        pcm_bytes = extract_audio_bytes(
+
+        pcm_audio = extract_audio_bytes(
             response
         )
 
-        if not pcm_bytes:
+
+        if not pcm_audio:
 
             raise RuntimeError(
-                "Gemini TTS did not return audio."
+                "Gemini TTS returned no audio."
             )
 
-        wav_bytes = pcm_to_wav(
-            pcm_bytes
+
+        wav_audio = pcm_to_wav(
+            pcm_audio
         )
 
+
         return Response(
-            content=wav_bytes,
+            content=wav_audio,
             media_type="audio/wav",
             headers={
-                "Cache-Control": "no-cache",
+                "Cache-Control":
+                    "no-cache, no-store",
+                "Pragma":
+                    "no-cache",
             },
         )
+
 
     except Exception as exc:
 
@@ -444,19 +509,11 @@ Text:
             repr(exc),
         )
 
+
         return JSONResponse(
             status_code=502,
             content={
-                "detail": (
-                    "Gemini TTS request failed: "
-                    f"{str(exc)}"
-                )
+                "detail":
+                    f"Gemini TTS failed: {str(exc)}"
             },
         )
-
-
-# ============================================================
-# RUN WITH:
-#
-# uvicorn server:app --host 0.0.0.0 --port 8001
-# ============================================================
