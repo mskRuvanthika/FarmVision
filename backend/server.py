@@ -17,7 +17,7 @@ from google.genai import types
 
 
 # ============================================================
-# LOAD ENVIRONMENT VARIABLES
+# ENVIRONMENT
 # ============================================================
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -25,7 +25,7 @@ ENV_FILE = BASE_DIR / ".env"
 
 load_dotenv(
     dotenv_path=ENV_FILE,
-    override=True,
+    override=False,
 )
 
 
@@ -46,7 +46,6 @@ GEMINI_TTS_MODEL = os.getenv(
     "GEMINI_TTS_MODEL",
     "gemini-3.1-flash-tts-preview",
 )
-
 
 gemini_client = None
 
@@ -100,7 +99,7 @@ app.add_middleware(
 
 def extract_audio_bytes(response) -> bytes | None:
     """
-    Extract PCM audio bytes from Gemini response.
+    Extract raw PCM audio bytes from Gemini TTS response.
     """
 
     try:
@@ -109,7 +108,6 @@ def extract_audio_bytes(response) -> bytes | None:
         )
 
         for candidate in candidates:
-
             content = candidate.content
 
             if not content:
@@ -118,7 +116,6 @@ def extract_audio_bytes(response) -> bytes | None:
             parts = content.parts or []
 
             for part in parts:
-
                 inline_data = getattr(
                     part,
                     "inline_data",
@@ -137,10 +134,7 @@ def extract_audio_bytes(response) -> bytes | None:
                 if not data:
                     continue
 
-                if isinstance(
-                    data,
-                    str,
-                ):
+                if isinstance(data, str):
                     try:
                         return base64.b64decode(
                             data
@@ -166,31 +160,17 @@ def pcm_to_wav(
     sample_width: int = 2,
 ) -> bytes:
     """
-    Convert Gemini PCM audio to WAV.
+    Convert Gemini's 24 kHz 16-bit mono PCM
+    into WAV audio for browser playback.
     """
 
     output = io.BytesIO()
 
-    with wave.open(
-        output,
-        "wb",
-    ) as wav:
-
-        wav.setnchannels(
-            channels
-        )
-
-        wav.setsampwidth(
-            sample_width
-        )
-
-        wav.setframerate(
-            sample_rate
-        )
-
-        wav.writeframes(
-            pcm_bytes
-        )
+    with wave.open(output, "wb") as wav:
+        wav.setnchannels(channels)
+        wav.setsampwidth(sample_width)
+        wav.setframerate(sample_rate)
+        wav.writeframes(pcm_bytes)
 
     return output.getvalue()
 
@@ -201,12 +181,8 @@ def pcm_to_wav(
 
 @app.get("/")
 def home():
-
     return {
-        "message": (
-            "FarmVision Gemini backend "
-            "is running"
-        ),
+        "message": "FarmVision Gemini backend is running",
         "gemini": (
             "configured"
             if gemini_client
@@ -224,9 +200,7 @@ def home():
 # GEMINI TEXT REQUEST
 # ============================================================
 
-class GeminiAdviceRequest(
-    BaseModel
-):
+class GeminiAdviceRequest(BaseModel):
     question: str
     disease: str = ""
     crop: str = "Sugarcane"
@@ -234,15 +208,11 @@ class GeminiAdviceRequest(
     language: str = "en-US"
 
 
-@app.post(
-    "/api/gemini-advice"
-)
+@app.post("/api/gemini-advice")
 async def gemini_advice(
     request: GeminiAdviceRequest,
 ):
-
     if gemini_client is None:
-
         return JSONResponse(
             status_code=500,
             content={
@@ -258,11 +228,9 @@ async def gemini_advice(
     if language not in SUPPORTED_LANGUAGES:
         language = "en-US"
 
-    language_name = (
-        SUPPORTED_LANGUAGES[
-            language
-        ]
-    )
+    language_name = SUPPORTED_LANGUAGES[
+        language
+    ]
 
     prompt = f"""
 You are FarmVision's AI agricultural
@@ -294,8 +262,8 @@ For crop or disease questions:
 
 1. Explain the problem.
 2. Explain possible causes.
-3. Give practical treatment
-   or management steps.
+3. Give practical treatment or
+   management steps.
 4. Give prevention steps.
 5. Mention when an agricultural
    expert should be contacted.
@@ -307,7 +275,6 @@ information is uncertain.
 """
 
     try:
-
         response = (
             gemini_client.models.generate_content(
                 model=GEMINI_TEXT_MODEL,
@@ -318,10 +285,7 @@ information is uncertain.
         answer = (
             response.text
             if response.text
-            else (
-                "I could not generate "
-                "a response."
-            )
+            else "I could not generate a response."
         )
 
         return {
@@ -332,7 +296,6 @@ information is uncertain.
         }
 
     except Exception as exc:
-
         print(
             "Gemini text error:",
             repr(exc),
@@ -350,25 +313,19 @@ information is uncertain.
 
 
 # ============================================================
-# GEMINI TEXT-TO-SPEECH REQUEST
+# GEMINI TEXT-TO-SPEECH
 # ============================================================
 
-class GeminiTTSRequest(
-    BaseModel
-):
+class GeminiTTSRequest(BaseModel):
     text: str
     language: str = "en-US"
 
 
-@app.post(
-    "/api/gemini-tts"
-)
+@app.post("/api/gemini-tts")
 async def gemini_tts(
     request: GeminiTTSRequest,
 ):
-
     if gemini_client is None:
-
         return JSONResponse(
             status_code=500,
             content={
@@ -384,16 +341,13 @@ async def gemini_tts(
     if language not in SUPPORTED_LANGUAGES:
         language = "en-US"
 
-    language_name = (
-        SUPPORTED_LANGUAGES[
-            language
-        ]
-    )
+    language_name = SUPPORTED_LANGUAGES[
+        language
+    ]
 
     text = request.text.strip()
 
     if not text:
-
         return JSONResponse(
             status_code=400,
             content={
@@ -401,7 +355,7 @@ async def gemini_tts(
             },
         )
 
-    # Limit TTS input size
+    # Prevent excessively large TTS requests.
     text = text[:6000]
 
     tts_prompt = f"""
@@ -429,7 +383,6 @@ Text to speak:
 """
 
     try:
-
         response = (
             gemini_client.models.generate_content(
                 model=GEMINI_TTS_MODEL,
@@ -457,7 +410,6 @@ Text to speak:
         )
 
         if not pcm_audio:
-
             raise RuntimeError(
                 "Gemini TTS returned no audio."
             )
@@ -472,12 +424,12 @@ Text to speak:
             headers={
                 "Cache-Control":
                     "no-cache, no-store",
-                "Pragma": "no-cache",
+                "Pragma":
+                    "no-cache",
             },
         )
 
     except Exception as exc:
-
         print(
             "Gemini TTS error:",
             repr(exc),
