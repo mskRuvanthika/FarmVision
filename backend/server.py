@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import io
 import os
@@ -13,7 +14,6 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 from google import genai
-from google.genai import types
 
 
 # ============================================================
@@ -33,9 +33,7 @@ load_dotenv(
 # GEMINI CONFIGURATION
 # ============================================================
 
-GEMINI_API_KEY = os.getenv(
-    "GEMINI_API_KEY"
-)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 GEMINI_TEXT_MODEL = os.getenv(
     "GEMINI_TEXT_MODEL",
@@ -94,64 +92,102 @@ app.add_middleware(
 
 
 # ============================================================
-# AUDIO HELPERS
+# HELPER: TEXT MODELS
 # ============================================================
 
-def extract_audio_bytes(response) -> bytes | None:
+def get_text_models():
     """
-    Extract raw PCM audio bytes from Gemini TTS response.
+    Try the configured model first, then fallback models.
+    Duplicates are removed while preserving order.
     """
 
-    try:
-        candidates = (
-            response.candidates or []
-        )
+    models = [
+        GEMINI_TEXT_MODEL,
+        "gemini-3.8-flash",
+        "gemini-3.6-flash",
+        "gemini-3.5-flash-lite",
+    ]
 
-        for candidate in candidates:
-            content = candidate.content
+    unique_models = []
 
-            if not content:
-                continue
+    for model in models:
+        if model and model not in unique_models:
+            unique_models.append(model)
 
-            parts = content.parts or []
+    return unique_models
 
-            for part in parts:
-                inline_data = getattr(
-                    part,
-                    "inline_data",
-                    None,
+
+# ============================================================
+# HELPER: GENERATE GEMINI TEXT WITH RETRY/FALLBACK
+# ============================================================
+
+async def generate_gemini_text(prompt: str):
+    """
+    Retry temporary 503 errors and use fallback models.
+
+    Returns:
+        (response, model_used)
+    """
+
+    last_error = None
+
+    for model in get_text_models():
+
+        for attempt in range(3):
+
+            try:
+                print(
+                    f"Gemini text attempt: "
+                    f"model={model}, "
+                    f"attempt={attempt + 1}"
                 )
 
-                if not inline_data:
-                    continue
-
-                data = getattr(
-                    inline_data,
-                    "data",
-                    None,
+                response = (
+                    gemini_client.models.generate_content(
+                        model=model,
+                        contents=prompt,
+                    )
                 )
 
-                if not data:
-                    continue
+                return response, model
 
-                if isinstance(data, str):
-                    try:
-                        return base64.b64decode(
-                            data
+            except Exception as exc:
+
+                last_error = exc
+
+                error_text = str(exc)
+
+                print(
+                    f"Gemini text error "
+                    f"(model={model}, "
+                    f"attempt={attempt + 1}): "
+                    f"{error_text}"
+                )
+
+                # Retry temporary overload.
+                if (
+                    "503" in error_text
+                    or "UNAVAILABLE" in error_text
+                ):
+                    if attempt < 2:
+                        await asyncio.sleep(
+                            2 ** attempt
                         )
-                    except Exception:
                         continue
 
-                return bytes(data)
+                # For non-503 errors, move to
+                # the next fallback model.
+                break
 
-    except Exception as exc:
-        print(
-            "Audio extraction error:",
-            repr(exc),
-        )
+    raise RuntimeError(
+        "All Gemini text models failed: "
+        f"{last_error}"
+    )
 
-    return None
 
+# ============================================================
+# HELPER: PCM -> WAV
+# ============================================================
 
 def pcm_to_wav(
     pcm_bytes: bytes,
@@ -160,8 +196,8 @@ def pcm_to_wav(
     sample_width: int = 2,
 ) -> bytes:
     """
-    Convert Gemini's 24 kHz 16-bit mono PCM
-    into WAV audio for browser playback.
+    Gemini TTS returns PCM audio.
+    Convert it to WAV for browser playback.
     """
 
     output = io.BytesIO()
@@ -189,6 +225,7 @@ def home():
             else "not configured"
         ),
         "text_model": GEMINI_TEXT_MODEL,
+        "text_fallbacks": get_text_models()[1:],
         "tts_model": GEMINI_TTS_MODEL,
         "languages": list(
             SUPPORTED_LANGUAGES.keys()
@@ -197,7 +234,7 @@ def home():
 
 
 # ============================================================
-# GEMINI TEXT REQUEST
+# GEMINI ADVICE REQUEST
 # ============================================================
 
 class GeminiAdviceRequest(BaseModel):
@@ -208,10 +245,15 @@ class GeminiAdviceRequest(BaseModel):
     language: str = "en-US"
 
 
+# ============================================================
+# GEMINI ADVICE
+# ============================================================
+
 @app.post("/api/gemini-advice")
 async def gemini_advice(
     request: GeminiAdviceRequest,
 ):
+
     if gemini_client is None:
         return JSONResponse(
             status_code=500,
@@ -228,9 +270,9 @@ async def gemini_advice(
     if language not in SUPPORTED_LANGUAGES:
         language = "en-US"
 
-    language_name = SUPPORTED_LANGUAGES[
-        language
-    ]
+    language_name = (
+        SUPPORTED_LANGUAGES[language]
+    )
 
     prompt = f"""
 You are FarmVision's AI agricultural
@@ -272,20 +314,23 @@ Do not invent laboratory results.
 
 Do not claim certainty when the
 information is uncertain.
-"""
+""".strip()
 
     try:
-        response = (
-            gemini_client.models.generate_content(
-                model=GEMINI_TEXT_MODEL,
-                contents=prompt,
+
+        response, used_model = (
+            await generate_gemini_text(
+                prompt
             )
         )
 
         answer = (
             response.text
             if response.text
-            else "I could not generate a response."
+            else (
+                "I could not generate "
+                "a response."
+            )
         )
 
         return {
@@ -293,27 +338,49 @@ information is uncertain.
             "answer": answer,
             "language": language,
             "language_name": language_name,
+            "model": used_model,
         }
 
     except Exception as exc:
+
+        error_text = str(exc)
+
         print(
-            "Gemini text error:",
+            "Final Gemini text error:",
             repr(exc),
         )
 
+        # Preserve useful HTTP status.
+        if (
+            "429" in error_text
+            or "RESOURCE_EXHAUSTED"
+            in error_text
+        ):
+            status_code = 429
+
+        elif (
+            "503" in error_text
+            or "UNAVAILABLE"
+            in error_text
+        ):
+            status_code = 503
+
+        else:
+            status_code = 502
+
         return JSONResponse(
-            status_code=502,
+            status_code=status_code,
             content={
                 "detail": (
                     "Gemini request failed: "
-                    f"{str(exc)}"
+                    f"{error_text}"
                 )
             },
         )
 
 
 # ============================================================
-# GEMINI TEXT-TO-SPEECH
+# GEMINI TTS REQUEST
 # ============================================================
 
 class GeminiTTSRequest(BaseModel):
@@ -321,10 +388,15 @@ class GeminiTTSRequest(BaseModel):
     language: str = "en-US"
 
 
+# ============================================================
+# GEMINI TTS
+# ============================================================
+
 @app.post("/api/gemini-tts")
 async def gemini_tts(
     request: GeminiTTSRequest,
 ):
+
     if gemini_client is None:
         return JSONResponse(
             status_code=500,
@@ -341,9 +413,9 @@ async def gemini_tts(
     if language not in SUPPORTED_LANGUAGES:
         language = "en-US"
 
-    language_name = SUPPORTED_LANGUAGES[
-        language
-    ]
+    language_name = (
+        SUPPORTED_LANGUAGES[language]
+    )
 
     text = request.text.strip()
 
@@ -355,11 +427,11 @@ async def gemini_tts(
             },
         )
 
-    # Prevent excessively large TTS requests.
+    # Keep TTS requests reasonably sized.
     text = text[:6000]
 
     tts_prompt = f"""
-Speak the following text naturally.
+Read the following text aloud naturally.
 
 Selected language:
 {language_name}
@@ -368,79 +440,140 @@ Language code:
 {language}
 
 IMPORTANT:
+Speak only in {language_name}.
+Do not translate the text.
+Do not change the meaning.
+Read the transcript clearly and naturally.
+Use a friendly voice suitable for a
+farmer assistance application.
 
-Speak ONLY in {language_name}.
-
-Do not translate the text into
-another language.
-
-Read the text naturally and clearly,
-with a friendly voice suitable for
-a farmer assistance application.
-
-Text to speak:
+Transcript:
 {text}
-"""
+""".strip()
 
-    try:
-        response = (
-            gemini_client.models.generate_content(
-                model=GEMINI_TTS_MODEL,
-                contents=tts_prompt,
-                config=types.GenerateContentConfig(
-                    response_modalities=[
-                        "AUDIO"
-                    ],
-                    speech_config=types.SpeechConfig(
-                        language_code=language,
-                        voice_config=types.VoiceConfig(
-                            prebuilt_voice_config=(
-                                types.PrebuiltVoiceConfig(
-                                    voice_name="Kore"
-                                )
-                            )
-                        ),
-                    ),
-                ),
-            )
-        )
+    last_error = None
 
-        pcm_audio = extract_audio_bytes(
-            response
-        )
+    # Small retry for temporary TTS failures.
+    for attempt in range(3):
 
-        if not pcm_audio:
-            raise RuntimeError(
-                "Gemini TTS returned no audio."
-            )
+        try:
 
-        wav_audio = pcm_to_wav(
-            pcm_audio
-        )
-
-        return Response(
-            content=wav_audio,
-            media_type="audio/wav",
-            headers={
-                "Cache-Control":
-                    "no-cache, no-store",
-                "Pragma":
-                    "no-cache",
-            },
-        )
-
-    except Exception as exc:
-        print(
-            "Gemini TTS error:",
-            repr(exc),
-        )
-
-        return JSONResponse(
-            status_code=502,
-            content={
-                "detail": (
-                    "Gemini TTS failed: "
-                    f"{str(exc)}"
+            interaction = (
+                gemini_client.interactions.create(
+                    model=GEMINI_TTS_MODEL,
+                    input=tts_prompt,
+                    response_format={
+                        "type": "audio"
+                    },
+                    generation_config={
+                        "speech_config": [
+                            {
+                                "voice": "Kore"
+                            }
+                        ]
+                    },
                 )
-            },
-        )
+            )
+
+            output_audio = getattr(
+                interaction,
+                "output_audio",
+                None,
+            )
+
+            if not output_audio:
+                raise RuntimeError(
+                    "Gemini TTS returned no audio."
+                )
+
+            audio_data = getattr(
+                output_audio,
+                "data",
+                None,
+            )
+
+            if not audio_data:
+                raise RuntimeError(
+                    "Gemini TTS returned "
+                    "empty audio data."
+                )
+
+            if isinstance(
+                audio_data,
+                str,
+            ):
+                pcm_audio = base64.b64decode(
+                    audio_data
+                )
+            else:
+                pcm_audio = bytes(
+                    audio_data
+                )
+
+            wav_audio = pcm_to_wav(
+                pcm_audio
+            )
+
+            return Response(
+                content=wav_audio,
+                media_type="audio/wav",
+                headers={
+                    "Cache-Control":
+                        "no-cache, no-store",
+                    "Pragma":
+                        "no-cache",
+                },
+            )
+
+        except Exception as exc:
+
+            last_error = exc
+
+            error_text = str(exc)
+
+            print(
+                f"Gemini TTS attempt "
+                f"{attempt + 1} failed: "
+                f"{error_text}"
+            )
+
+            if (
+                "503" in error_text
+                or "UNAVAILABLE" in error_text
+            ):
+                if attempt < 2:
+                    await asyncio.sleep(
+                        2 ** attempt
+                    )
+                    continue
+
+            break
+
+    error_text = str(last_error)
+
+    if (
+        "429" in error_text
+        or "RESOURCE_EXHAUSTED"
+        in error_text
+    ):
+        status_code = 429
+
+    elif (
+        "503" in error_text
+        or "UNAVAILABLE"
+        in error_text
+    ):
+        status_code = 503
+
+    else:
+        status_code = 502
+
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "detail": (
+                "Gemini TTS failed: "
+                f"{error_text}"
+            )
+        },
+    )
