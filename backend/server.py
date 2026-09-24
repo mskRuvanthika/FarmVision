@@ -1,13 +1,17 @@
 import asyncio
 import base64
 import io
+import json
+import numpy as np
+import tensorflow as tf
 import os
 import wave
 from pathlib import Path
 
+from PIL import Image
 from dotenv import load_dotenv
 
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
@@ -73,11 +77,25 @@ app = FastAPI(
     title="FarmVision Gemini Backend"
 )
 
+# ============================================================
+# DISEASE DETECTION MODEL
+# ============================================================
+
+MODEL_PATH = BASE_DIR / "tomato_disease_model.keras"
+LABELS_PATH = BASE_DIR / "class_labels.json"
+
+disease_model = tf.keras.models.load_model(MODEL_PATH)
+
+with open(LABELS_PATH, "r") as f:
+    CLASS_LABELS = json.load(f)
+
+print("Disease model loaded successfully.")
+print("Classes:", CLASS_LABELS)
+
 
 # ============================================================
 # CORS
 # ============================================================
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -232,7 +250,80 @@ def home():
         ),
     }
 
+# ============================================================
+# DISEASE DETECTION
+# ============================================================
 
+@app.post("/predict")
+async def predict_disease(file: UploadFile = File(...)):
+
+    try:
+        # Read uploaded image
+        image_bytes = await file.read()
+
+        # Open image
+        image = Image.open(
+            io.BytesIO(image_bytes)
+        ).convert("RGB")
+
+        # Resize for MobileNetV2
+        image = image.resize((224, 224))
+
+        # Convert image to NumPy array
+        image_array = np.array(image)
+
+        # MobileNetV2 preprocessing
+        image_array = tf.keras.applications.mobilenet_v2.preprocess_input(
+            image_array
+        )
+
+        # Add batch dimension
+        image_array = np.expand_dims(
+            image_array,
+            axis=0
+        )
+
+        # Run prediction
+        predictions = disease_model.predict(
+            image_array,
+            verbose=0
+        )[0]
+
+        # Get predicted class
+        predicted_index = int(
+            np.argmax(predictions)
+        )
+
+        confidence = float(
+            predictions[predicted_index]
+        )
+
+        disease = CLASS_LABELS[predicted_index]
+
+        return {
+            "success": True,
+            "disease": disease,
+            "confidence": confidence,
+            "confidence_percent": round(
+                confidence * 100,
+                2
+            )
+        }
+
+    except Exception as exc:
+
+        print(
+            "Disease prediction error:",
+            repr(exc)
+        )
+
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "detail": str(exc)
+            }
+        )
 # ============================================================
 # GEMINI ADVICE REQUEST
 # ============================================================
