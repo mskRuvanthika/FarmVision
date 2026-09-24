@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 from google import genai
+from huggingface_hub import snapshot_download
 
 
 # ============================================================
@@ -76,21 +77,48 @@ SUPPORTED_LANGUAGES = {
 app = FastAPI(
     title="FarmVision Gemini Backend"
 )
-
 # ============================================================
-# DISEASE DETECTION MODEL
+# DISEASE MODEL
 # ============================================================
 
 MODEL_PATH = BASE_DIR / "tomato_disease_model.keras"
 LABELS_PATH = BASE_DIR / "class_labels.json"
 
-disease_model = tf.keras.models.load_model(MODEL_PATH)
+HF_REPO = "Ruvanthika18/tomato-disease-model"
 
-with open(LABELS_PATH, "r") as f:
-    CLASS_LABELS = json.load(f)
+disease_model = None
+CLASS_LABELS = {}
 
-print("Disease model loaded successfully.")
-print("Classes:", CLASS_LABELS)
+
+def load_disease_model():
+    global disease_model, CLASS_LABELS
+
+    if not MODEL_PATH.exists() or not LABELS_PATH.exists():
+        snapshot_download(
+            repo_id=HF_REPO,
+            local_dir=BASE_DIR,
+            allow_patterns=[
+                "tomato_disease_model.keras",
+                "class_labels.json"
+            ],
+        )
+
+    disease_model = tf.keras.models.load_model(
+        MODEL_PATH
+    )
+
+    with open(
+        LABELS_PATH,
+        "r",
+        encoding="utf-8"
+    ) as f:
+        CLASS_LABELS = json.load(f)
+
+    print("Disease model loaded successfully.")
+
+
+load_disease_model()
+
 
 
 # ============================================================
