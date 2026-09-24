@@ -162,7 +162,7 @@ toast.success('Disease detected successfully');
                 <h3 className="font-bold text-gray-800 mb-2 flex items-center gap-2">
                    <CheckCircle className="w-4 h-4 text-green-600" /> Treatment
                 </h3>
-                {result.treatment.length > 0 && (
+                {(result.treatment || []).length > 0 && (
   <>
     <ul className="space-y-2">
       {(result.treatment || []).map((t: string, i: number) => (
