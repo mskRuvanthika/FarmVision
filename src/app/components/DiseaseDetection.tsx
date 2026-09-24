@@ -50,7 +50,16 @@ export function DiseaseDetection() {
       }
 
       const data = await response.json();
-      setResult(data);
+      setResult({
+  ...data,
+  name: data.disease,
+  confidence: data.confidence_percent,
+  severity: 'Detected',
+  description: `The AI model detected ${data.disease} in the uploaded crop image.`,
+  descriptionHindi: '',
+  treatment: [],
+  treatmentHindi: [],
+});
       toast.success('Disease detected successfully');
     } catch (error) {
       console.error('Disease detection error:', error);
@@ -151,17 +160,24 @@ export function DiseaseDetection() {
                 <h3 className="font-bold text-gray-800 mb-2 flex items-center gap-2">
                    <CheckCircle className="w-4 h-4 text-green-600" /> Treatment
                 </h3>
-                <ul className="space-y-2">
-                  {result.treatment.map((t: string, i: number) => (
-                    <li key={i} className="flex gap-2 text-sm text-gray-700">
-                      <span className="w-1.5 h-1.5 bg-green-500 rounded-full mt-1.5 flex-shrink-0"></span>
-                      {t}
-                    </li>
-                  ))}
-                </ul>
-                <div className="mt-2 p-3 bg-green-50 rounded-lg text-xs text-green-800">
-                   <strong>Hindi:</strong> {result.treatmentHindi.join(', ')}
-                </div>
+                {result.treatment.length > 0 && (
+  <>
+    <ul className="space-y-2">
+      {result.treatment.map((t: string, i: number) => (
+        <li key={i} className="flex gap-2 text-sm text-gray-700">
+          <span className="w-1.5 h-1.5 bg-green-500 rounded-full mt-1.5 flex-shrink-0"></span>
+          {t}
+        </li>
+      ))}
+    </ul>
+
+    {result.treatmentHindi.length > 0 && (
+      <div className="mt-2 p-3 bg-green-50 rounded-lg text-xs text-green-800">
+        <strong>Hindi:</strong> {result.treatmentHindi.join(', ')}
+      </div>
+    )}
+  </>
+)}
               </div>
 
               <div className="bg-gray-50 p-4 rounded-xl text-xs text-gray-500">
