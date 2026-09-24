@@ -50,7 +50,8 @@ export function DiseaseDetection() {
       }
 
       const data = await response.json();
-      setResult({
+
+setResult({
   ...data,
   name: data.disease,
   confidence: data.confidence_percent,
@@ -60,7 +61,8 @@ export function DiseaseDetection() {
   treatment: [],
   treatmentHindi: [],
 });
-      toast.success('Disease detected successfully');
+
+toast.success('Disease detected successfully');
     } catch (error) {
       console.error('Disease detection error:', error);
       toast.error(
@@ -163,7 +165,7 @@ export function DiseaseDetection() {
                 {result.treatment.length > 0 && (
   <>
     <ul className="space-y-2">
-      {result.treatment.map((t: string, i: number) => (
+      {(result.treatment || []).map((t: string, i: number) => (
         <li key={i} className="flex gap-2 text-sm text-gray-700">
           <span className="w-1.5 h-1.5 bg-green-500 rounded-full mt-1.5 flex-shrink-0"></span>
           {t}
@@ -173,7 +175,7 @@ export function DiseaseDetection() {
 
     {result.treatmentHindi.length > 0 && (
       <div className="mt-2 p-3 bg-green-50 rounded-lg text-xs text-green-800">
-        <strong>Hindi:</strong> {result.treatmentHindi.join(', ')}
+        <strong>Hindi:</strong> {(result.treatmentHindi || []).join(', ')}
       </div>
     )}
   </>
