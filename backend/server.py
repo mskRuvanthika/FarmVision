@@ -326,7 +326,7 @@ async def predict_disease(file: UploadFile = File(...)):
             predictions[predicted_index]
         )
 
-        disease = CLASS_LABELS[predicted_index]
+        disease = CLASS_LABELS[str(predicted_index)]
 
         return {
             "success": True,
